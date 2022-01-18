@@ -179,7 +179,6 @@ def melt_transition_table(json_output):
 
 def toMatrix(pdtb):
     distinct = (list(set(pdtb['parent'].unique()) | set(pdtb['relation'].unique())))
-
     zero_data = np.zeros(shape=(len(distinct),len(distinct)))
     df = pd.DataFrame(index=distinct,columns=distinct,data=zero_data)
     for _, row in pdtb.iterrows():
@@ -188,7 +187,7 @@ def toMatrix(pdtb):
 
 def getNextWord(df, word, n):
     res = pd.DataFrame(data=np.identity(len(df.index)),index=df.index,columns=df.columns)
-    for i in range(n):
+    for _ in range(n):
         res=res.dot(df)
     return res[word]
 
@@ -206,16 +205,6 @@ if __name__ == "__main__":
 
     pdtb = melt_transition_table(transition_table(text, n))
     df = toMatrix(pdtb)
-    print(getNextWord(df,'visitors',1000))
+    print(getNextWord(df,'although',3))
 
-    df.to_csv('matrix.csv')
-    pdtb.to_csv('output.csv')
-    # print(pdtb['parent'].unique())
-    # print(pdtb)
-    # numpy_matrix= pdtb.to_numpy()
-    # list(numpy_matrix)
-    # print(numpy_matrix)
-    # numpy_matrix[1]
-
-    # for i in range(len(numpy_matrix)):
-        # if numpy_matrix[i] in 
+    # pdtb.to_csv('output.csv')
