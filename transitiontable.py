@@ -1,12 +1,14 @@
+from collections import Counter
+from collections import defaultdict
+from sqlite3 import Row
+import string
+import os
 import re
 import json
+import numpy as np
 import pandas as pd
 from nltk import sent_tokenize, word_tokenize, ngrams
 import nltk
-import os
-import string
-from collections import defaultdict
-from collections import Counter
 
 
 def compute_usage(corpus, gram_length):
@@ -175,12 +177,27 @@ def melt_transition_table(json_output):
     pd_flat.columns = headers
     return pd_flat
 
+def toMatrix(pdtb):
+    distinct = (list(set(pdtb['parent'].unique()) | set(pdtb['relation'].unique())))
+
+    zero_data = np.zeros(shape=(len(distinct),len(distinct)))
+    df = pd.DataFrame(index=distinct,columns=distinct,data=zero_data)
+    for _, row in pdtb.iterrows():
+        df[row['parent']][row['relation']] = row['percentage']
+    return df
+
+def getNextWord(df, word, n):
+    res = pd.DataFrame(data=np.identity(len(df.index)),index=df.index,columns=df.columns)
+    for i in range(n):
+        res=res.dot(df)
+    return res[word]
+
 
 if __name__ == "__main__":
-    n = 2
+    n = 1
     path = r'10_Best_Things_to_Do_in_Tartu.txt'
     text = ''
-    with open(path, 'r') as f:
+    with open(path, mode='r', encoding='utf8') as f:
         text = f.read()
         text = text.split('.')
         for sentence in text:
@@ -188,6 +205,17 @@ if __name__ == "__main__":
             sentence += '.'
 
     pdtb = melt_transition_table(transition_table(text, n))
-    pdtb.to_csv('output.csv')
+    df = toMatrix(pdtb)
+    print(getNextWord(df,'visitors',1000))
 
-    print(pdtb)
+    df.to_csv('matrix.csv')
+    pdtb.to_csv('output.csv')
+    # print(pdtb['parent'].unique())
+    # print(pdtb)
+    # numpy_matrix= pdtb.to_numpy()
+    # list(numpy_matrix)
+    # print(numpy_matrix)
+    # numpy_matrix[1]
+
+    # for i in range(len(numpy_matrix)):
+        # if numpy_matrix[i] in 
