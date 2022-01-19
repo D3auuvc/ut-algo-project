@@ -1,210 +1,186 @@
 from collections import Counter
 from collections import defaultdict
-from sqlite3 import Row
 import string
-import os
-import re
-import json
 import numpy as np
 import pandas as pd
-from nltk import sent_tokenize, word_tokenize, ngrams
-import nltk
+from nltk import word_tokenize, ngrams
+import time
 
 
-def compute_usage(corpus, gram_length):
-    entropylist = defaultdict(list)
-    # entropylist represents a nested breakdown of all the words associated
-    # before and after the appearance of another word
-    '''
-    Only punctuation and special characters are removed from the corpus.
-    All other elements are kept.
-    '''
-    removals = string.punctuation + '``'
+class NgramModel(object):
 
-    for com in corpus:
-        ngram_statement = [str(i) for i in ngrams(
-            [iter for iter in word_tokenize(com) if iter not in removals], gram_length)]
-        counter = 0
-        recent_list = []
-        for gram in ngram_statement:
-            '''
-            This manipulation of the length of each gram is done because
-            of the formatting that is applied to the string format when
-            being passed through word_tokenize.
-            '''
-            if gram_length == 1:
-                gram_clean = gram[2:len(gram)-3]
-            else:
-                gram_clean = ''.join(gram)
+    def __init__(self, n=1):
+        """
+        Class init
+        :param 'n': length of n-gram, default is one
+        """
+        self.n = n
+        # a nested breakdown of all the words associated
+        # before and after the appearance of another word
+        self.entropylist = defaultdict(list)
+        # keeps track of how many times ngram has appeared in the text before
+        self.ngram_counter = {}
 
-            if gram_length == 1:
+    def get_ngrams(self, corpus: list) -> dict:
+        """
+        Get ngrams
+        :param 'corpus' : contents want to process in ngram
+        :return         : list of ngrams
+        """
+
+        # list of special characters want to be removed from the corpus.
+        removals = string.punctuation + '``'+'’'
+
+        for com in corpus:
+            ngram_statement = [str(i).lower() for i in ngrams(
+                [iter for iter in word_tokenize(com) if iter not in removals], self.n)]
+            counter = 0
+            recent_list = []
+            for gram in ngram_statement:
+
+                # Romovig formatting that applied to the string format
+                # when being passed through word_tokenize.
+                if self.n == 1:
+                    gram_clean = gram[2:len(gram)-3]
+                else:
+                    gram_clean = ''.join(gram)
+
+                # Depending on the position and length of the gram
                 if counter == 0:
-                    '''
-                    Depending on the position and length of the gram, it is
-                    necessary to denote the beginning of a statement.
-                    '''
-                    entropylist['[start]'].append(gram_clean.lower())
-                    recent_list.append(gram_clean.lower())
-                    counter += 1
+                    self.entropylist['[start]'].append(gram_clean)
+                    recent_list.append(gram_clean)
                 elif counter > 0:
-                    entropylist[str(recent_list[len(recent_list)-1])
-                                ].append(str(gram_clean.lower()))
-                    recent_list.append(gram_clean.lower())
-                    counter += 1
+                    self.entropylist[str(
+                        recent_list[len(recent_list)-self.n])].append(str(gram_clean))
+                    recent_list.append(gram_clean)
                 elif counter == len(ngram_statement):
-                    entropylist[str(recent_list[len(recent_list)-1])
-                                ].append('[end]')
+                    self.entropylist[str(
+                        recent_list[len(recent_list)-self.n])].append('[end]')
                     recent_list.append('[end]')
-                    counter += 1
-            else:
-                if counter == 0:
-                    '''
-                    Depending on the position and length of the gram, it is
-                    necessary to denote the beginning of a statement.
-                    '''
-                    entropylist['[start]'].append(gram_clean.lower())
-                    recent_list.append(gram_clean.lower())
-                    counter += 1
-                elif counter > 0:
-                    entropylist[str(
-                        recent_list[len(recent_list)-gram_length])].append(str(gram_clean.lower()))
-                    recent_list.append(gram_clean.lower())
-                    counter += 1
-                elif counter == len(ngram_statement):
-                    entropylist[str(
-                        recent_list[len(recent_list)-gram_length])].append('[end]')
-                    recent_list.append('[end]')
-                    counter += 1
 
-    # Usage count represents the appearance of words (in their respective order)
-    # and the counts of THOSE words
-    usage_count = {}
-    for key in entropylist:
-        count_vals = {}
-        '''
-        Increment the appearance of the grams that appear within the gram.
-        This will allow us to then determine the conditional probability of the
-        appearnace of the next phrase in a sequence.
-        '''
-        for val in entropylist[key]:
-            if str(val) in count_vals:
-                count_vals[str(val)] += 1
-            else:
-                count_vals[str(val)] = 1
+                counter += 1
 
-        usage_count[str(val)] = [count_vals]
+        # usage count represents the appearance
+        # of words (in their respective order)
+        for key in self.entropylist:
+            count_vals = {}
+            # increment the appearance of the grams that appear within the gram.
+            for val in self.entropylist[key]:
+                if str(val) in count_vals:
+                    count_vals[str(val)] += 1
+                else:
+                    count_vals[str(val)] = 1
 
-    return {'usage': usage_count, 'entropylist': entropylist}
+            self.ngram_counter[str(val)] = [count_vals]
+
+        return {'usage': self.ngram_counter, 'entropylist': self.entropylist}
 
 
-def transition_table(corpus, gram_length=1):
-    '''
-    Slated improvements to this function:
-    - allow for custom stopwords to be removed from the various grams being measured
-    - allow the corpus to be either a list of verbatims, or a pandas dataframe
-      for segementation
-    '''
+class MarkovChainModel(object):
 
-    '''
-    Description:
-    - Returns the set of transition tables (transition tables) based on the
-      length of gram_length supplied by the user (default length 1)
-    - 'corpus' must be a (python) list of statements
-    - 'gram_length' must be a whole integer
-    '''
-    all_entropy = {}
-    usage_info = compute_usage(corpus, gram_length)
+    def __init__(self, ngrams):
+        """
+        Class init
+        :param 'ngrams': data structure of the n-gram
+        """
 
-    for key in usage_info['entropylist']:
-        cond_prob_val = {}
-        relative_usage = Counter(usage_info['entropylist'][key])
-        relative_words_len = sum(relative_usage.values())
+        self.ngrams = ngrams
 
-        for following_gram in relative_usage:
-            cond_prob_val[following_gram] = float(
-                relative_usage[following_gram]) / float(relative_words_len)
+    def _transition_table(self) -> dict:
+        """
+        Returns the set of transition tables based on the length of n
+        :return : set of transition table(s)
+        """
 
-        all_entropy[key] = cond_prob_val
+        all_entropy = {}
+        ngrams = self.ngrams
 
-    '''forcing everyone to move to JSON read/write :) '''
-    return all_entropy
+        for key in ngrams['entropylist']:
+            cond_prob_val = {}
+            relative_usage = Counter(ngrams['entropylist'][key])
+            relative_words_len = sum(relative_usage.values())
 
+            for following_gram in relative_usage:
+                cond_prob_val[following_gram] = float(
+                    relative_usage[following_gram]) / float(relative_words_len)
 
-def gram_stats(corpus, gram_length=1):
-    '''
-    Slated improvements to this function:
-    - None at this time
-    '''
+            all_entropy[key] = cond_prob_val
 
-    '''Description:
-    - Returns a JSON file that describes how grams (default length 1)
-    - Fields of interest returned include:
-        - gram,
-        - % usage across corpus (by row)
-    '''
-    usage_info = compute_usage(corpus, gram_length)
+        return all_entropy
 
-    # iterate through all the different grams, perform pattern matching, and then
-    # return the overall % appearance within the corpus
-    appearance_dict = {}
-    total_rows = len(corpus)
-    flat_keys = list(set([item for item in usage_info['usage']]))
-    removals = string.punctuation + '``'
+    def _melt_transition_table(self) -> pd.DataFrame:
+        """
+        Create a melted dataframe
+        :return : dataframe of transition table(s)
+        """
 
-    for key in flat_keys:
-        gram_appear = 0
-        for r in removals:
-            key = key.replace(r, '')
+        transition_table = self._transition_table()
+        flat_output = []
+        for key in transition_table:
+            for foll in transition_table[key]:
+                temp_row = [key, foll, transition_table[key][foll]]
+                flat_output.append(temp_row)
+        pd_flat = pd.DataFrame(flat_output)
+        headers = ['parent', 'relation', 'percentage']
+        pd_flat.columns = headers
+        pd_flat.to_csv('output.csv')
+        return pd_flat
 
-        for row in corpus:
-            if key in row:
-                gram_appear += 1
+    def get_matrix(self) -> pd.DataFrame:
+        """
+        Create a markov chain transition matrix
+        :return : transition matrix of markov chain
+        """
+        transition_table = self._melt_transition_table()
 
-        appearance_dict[key] = [
-            round(float(gram_appear) / float(total_rows), 8)]
-    return json.dumps(appearance_dict)
+        distinct = (list(set(transition_table['parent'].unique())
+                    | set(transition_table['relation'].unique())))
+        zero_data = np.zeros(shape=(len(distinct), len(distinct)))
+        df = pd.DataFrame(index=distinct, columns=distinct, data=zero_data)
+        for _, row in transition_table.iterrows():
+            df[row['parent']][row['relation']] = row['percentage']
+        return df
 
 
-# create a melted dataframe that takes the json output and turns it into a csv
-def melt_transition_table(json_output):
-    flat_output = []
-    for key in json_output:
-        for foll in json_output[key]:
-            temp_row = [key, foll, json_output[key][foll]]
-            flat_output.append(temp_row)
-    pd_flat = pd.DataFrame(flat_output)
-    headers = ['parent', 'relation', 'percentage']
-    pd_flat.columns = headers
-    return pd_flat
-
-def toMatrix(pdtb):
-    distinct = (list(set(pdtb['parent'].unique()) | set(pdtb['relation'].unique())))
-    zero_data = np.zeros(shape=(len(distinct),len(distinct)))
-    df = pd.DataFrame(index=distinct,columns=distinct,data=zero_data)
-    for _, row in pdtb.iterrows():
-        df[row['parent']][row['relation']] = row['percentage']
-    return df
-
-def getNextWord(df, word, n):
-    res = pd.DataFrame(data=np.identity(len(df.index)),index=df.index,columns=df.columns)
+def guess_next_word(matrix, c_word, n):
+    """
+    Execute Markov chain to get the probability of the word come after current word
+    :param 'matrix' : transition matrix of markov chain
+    :param 'c_word' : current word
+    :param 'n'      : length of n-gram
+    :return : probability of the next word
+    """
+    res = pd.DataFrame(data=np.identity(len(matrix.index)),
+                       index=matrix.index, columns=matrix.columns)
     for _ in range(n):
-        res=res.dot(df)
-    return res[word]
+        res = res.dot(matrix)
+    return res[c_word]
+
+
+def get_corpus(path: str) -> list:
+    """
+    Get corpus from the path file
+    :param 'path'   : corpus file path
+    :return         : generated corpus
+    """
+    corpus = ''
+    with open(path, mode='r', encoding='utf8') as f:
+        corpus = f.readlines()
+        corpus = [s.rstrip('\n') for s in corpus]
+
+    return corpus
 
 
 if __name__ == "__main__":
     n = 1
     path = r'10_Best_Things_to_Do_in_Tartu.txt'
-    text = ''
-    with open(path, mode='r', encoding='utf8') as f:
-        text = f.read()
-        text = text.split('.')
-        for sentence in text:
-            # add back the fullstop
-            sentence += '.'
+    corpus = get_corpus(path)
+    ngram_model = NgramModel()
+    # print(ngram_model.get_ngrams(corpus))
 
-    pdtb = melt_transition_table(transition_table(text, n))
-    df = toMatrix(pdtb)
-    print(getNextWord(df,'although',3))
-
-    # pdtb.to_csv('output.csv')
+    markov_model = MarkovChainModel(ngram_model.get_ngrams(corpus))
+    start = time.time()
+    guess_word=guess_next_word(markov_model.get_matrix(),'although',n)
+    print(f'Language Model creating time: {time.time() - start}')
+    
+    print(guess_word)
