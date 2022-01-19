@@ -144,7 +144,7 @@ class MarkovChainModel(object):
         return df
 
 
-def guess_next_word(matrix, c_word, k):
+def strassen_algorithm(matrix, c_word, k):
     """
     Execute Markov chain to get the probability of the word come after current word
     :param 'matrix' : transition matrix of markov chain
@@ -152,11 +152,15 @@ def guess_next_word(matrix, c_word, k):
     :param 'k'      : the probability of k+1-th word comes after k-th word
     :return : probability of the next word
     """
-    res = pd.DataFrame(data=np.identity(len(matrix.index)),
-                       index=matrix.index, columns=matrix.columns)
-    for _ in range(k):
-        res = res.dot(matrix)
-    return res[c_word]
+    if k==1:
+        return matrix[c_word]
+    else:
+        res = pd.DataFrame(data=np.identity(len(matrix.index)),
+                        index=matrix.index, columns=matrix.columns)
+        
+        for _ in range(k):
+            res = res.dot(matrix)
+        return res[c_word]
 
 
 def get_corpus(path: str) -> list:
@@ -182,7 +186,7 @@ if __name__ == "__main__":
 
     markov_model = MarkovChainModel(ngram_model.get_ngrams(corpus))
     start = time.time()
-    guess_word=guess_next_word(markov_model.get_matrix(),'although',n)
+    guess_word=strassen_algorithm(markov_model.get_matrix(),'although',n)
     print(f'Language Model creating time: {time.time() - start}')
     
     plt.matshow(markov_model.get_matrix())
