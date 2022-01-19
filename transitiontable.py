@@ -6,6 +6,8 @@ import pandas as pd
 from nltk import word_tokenize, ngrams
 import time
 
+import matplotlib.pyplot as plt
+
 
 class NgramModel(object):
 
@@ -142,17 +144,17 @@ class MarkovChainModel(object):
         return df
 
 
-def guess_next_word(matrix, c_word, n):
+def guess_next_word(matrix, c_word, k):
     """
     Execute Markov chain to get the probability of the word come after current word
     :param 'matrix' : transition matrix of markov chain
     :param 'c_word' : current word
-    :param 'n'      : length of n-gram
+    :param 'k'      : the probability of k+1-th word comes after k-th word
     :return : probability of the next word
     """
     res = pd.DataFrame(data=np.identity(len(matrix.index)),
                        index=matrix.index, columns=matrix.columns)
-    for _ in range(n):
+    for _ in range(k):
         res = res.dot(matrix)
     return res[c_word]
 
@@ -173,7 +175,7 @@ def get_corpus(path: str) -> list:
 
 if __name__ == "__main__":
     n = 1
-    path = r'10_Best_Things_to_Do_in_Tartu.txt'
+    path = r'Pride_and_Prejudice.txt'
     corpus = get_corpus(path)
     ngram_model = NgramModel()
     # print(ngram_model.get_ngrams(corpus))
@@ -182,5 +184,9 @@ if __name__ == "__main__":
     start = time.time()
     guess_word=guess_next_word(markov_model.get_matrix(),'although',n)
     print(f'Language Model creating time: {time.time() - start}')
+    
+    plt.matshow(markov_model.get_matrix())
+    plt.colorbar()
+    plt.show()
     
     print(guess_word)
